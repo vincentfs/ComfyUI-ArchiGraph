@@ -1,7 +1,7 @@
 [project]
 name = "archigraph"
-description = ""
-version = "1.0.0"
+description = "Implementation of architectural related graph algorithm in ComfyUI."
+version = "0.0.1"
 license = {file = "LICENSE"}
 
 [project.urls]
@@ -9,6 +9,6 @@ Repository = "https://github.com/vincentfs/ComfyUI-ArchiGraph"
 #  Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
-PublisherId = ""
+PublisherId = "vincentfs"
 DisplayName = "ComfyUI-ArchiGraph"
-Icon = ""
+Icon = "https://github.com/vincentfs/ComfyUI-ArchiGraph/blob/main/ArchiGraphLogo.png"
