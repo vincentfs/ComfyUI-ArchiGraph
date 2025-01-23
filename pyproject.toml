@@ -11,4 +11,4 @@ Repository = "https://github.com/vincentfs/ComfyUI-ArchiGraph"
 [tool.comfy]
 PublisherId = "vincentfs"
 DisplayName = "ComfyUI-ArchiGraph"
-Icon = ""
+Icon = "https://github.com/vincentfs/ComfyUI-ArchiGraph/blob/main/ArchiGraphLogo.png"
