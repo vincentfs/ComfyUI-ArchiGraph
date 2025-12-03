@@ -13,9 +13,13 @@ class Image2Nparray:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {
+            "optional": {
                 "images": ("IMAGE",),
-            },
+                "masks": ("MASK", {
+                    "default": None,
+                    "tooltip": "Optional mask to convert to Nparray. If provided, will overwrite the images input."
+                })
+            }
         }
 
     RETURN_TYPES = ("NPARRAY",)
@@ -25,9 +29,15 @@ class Image2Nparray:
     CATEGORY = CURRENT_CATEGORY
     DESCRIPTION = "Convert images to Nparrays for use by OpenCV. Supports batch size >= 1."
     
-    def execute(self, images):
-        # Convert From Torch Tensor [B, H, W, C] to Numpy Array. Clip [0,1] as sanity check.
-        ret = (images.cpu().numpy().clip(0, 1) * 255).astype(np.uint8)[..., ::-1] # reverse color channel from RGB to BGR
+    def execute(self, images=None, masks=None):
+        if masks is not None:
+            # Convert From Torch Tensor [B, H, W] to Numpy Array [B, H, W, 1]. Clip [0,1] as sanity check.
+            ret = (masks.cpu().numpy().clip(0, 1) * 255).astype(np.uint8)[..., np.newaxis]
+        elif images is not None:
+            # Convert From Torch Tensor [B, H, W, C] to Numpy Array. Clip [0,1] as sanity check.
+            ret = (images.cpu().numpy().clip(0, 1) * 255).astype(np.uint8)[..., ::-1] # reverse color channel from RGB to BGR
+        else:
+            ret = np.zeros((1,1,1,1),dtype=np.uint8)  # return dummy value if both inputs are None
         return (ret,)
 
 #---------------------------------------------------------------------------------------------------------------------#
@@ -666,3 +676,86 @@ class Circles:
                 result[b] = cv2.circle(result[b], point, radius, colorEnum[color], thickness)
 
         return (result,)
+    
+#---------------------------------------------------------------------------------------------------------------------#
+class ConnectedComponentsWithStats:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "Np_bin": ("NPARRAY", {
+                    "tooltip": "Single batch binary image. Non-zero pixels are treated as 1's. \nYou can use compare(), threshold(), inRange(), Canny() etc. to create a binary image."
+                }),
+                "connectivity": (["4", "8"], {
+                    "default": "8",
+                    "tooltip": "Pixel connectivity to use."
+                }),
+                "colormap": (list(cls._COLORMAPS.keys()), {
+                    "default": "HSV",
+                    "tooltip": "Colormap to use for preview."
+                }),
+            },
+        }
+    
+    SINGULAR_ONLY = True
+    RETURN_TYPES = ("INT", "NPARRAY", ANY, ANY, "NPARRAY",)
+    RETURN_NAMES = ("num_labels", "labels", "stats", "centroids", "preview",)
+    FUNCTION = "execute"
+    NAME = "Connected Components With Stats"
+    CATEGORY = CURRENT_CATEGORY
+    DESCRIPTION = "OpenCV Connected Components With Stats. Labels connected components in a binary image and computes statistics for each component."
+
+    _COLORMAPS = {
+        'AUTUMN': cv2.COLORMAP_AUTUMN,
+        'BONE': cv2.COLORMAP_BONE,
+        'JET': cv2.COLORMAP_JET,
+        'WINTER': cv2.COLORMAP_WINTER,
+        'RAINBOW': cv2.COLORMAP_RAINBOW,  # 真正的彩虹色阶
+        'OCEAN': cv2.COLORMAP_OCEAN,
+        'SUMMER': cv2.COLORMAP_SUMMER,
+        'SPRING': cv2.COLORMAP_SPRING,
+        'COOL': cv2.COLORMAP_COOL,
+        'HSV': cv2.COLORMAP_HSV,
+        'PINK': cv2.COLORMAP_PINK,
+        'HOT': cv2.COLORMAP_HOT,
+        'PARULA': cv2.COLORMAP_PARULA,
+        'MAGMA': cv2.COLORMAP_MAGMA,
+        'INFERNO': cv2.COLORMAP_INFERNO,
+        'PLASMA': cv2.COLORMAP_PLASMA,
+        'VIRIDIS': cv2.COLORMAP_VIRIDIS,
+        'CIVIDIS': cv2.COLORMAP_CIVIDIS,
+        'TWILIGHT': cv2.COLORMAP_TWILIGHT,
+        'TWILIGHT_SHIFTED': cv2.COLORMAP_TWILIGHT_SHIFTED,
+        'TURBO': cv2.COLORMAP_TURBO,
+        'DEEPGREEN': cv2.COLORMAP_DEEPGREEN,
+    }
+
+    def execute(self, Np_bin, connectivity, colormap):
+        if Np_bin.shape[0] != 1:
+            raise ValueError("ConnectedComponentsWithStats node only supports batch size of 1.")
+        ConnectivityInput = 4 if connectivity == "4" else 8
+
+        # Convert to grayscale if needed
+        if len(Np_bin.shape) == 3 and Np_bin.shape[2] == 3:
+            gray = cv2.cvtColor(Np_bin[0], cv2.COLOR_BGR2GRAY)
+        else:
+            gray = Np_bin[0]
+
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(gray, connectivity=ConnectivityInput)
+
+        if num_labels <= 1:
+            raise ValueError("No objects found in the binary image.")
+        elif num_labels == 2:
+            # use black and white directly
+            preview = (labels * 255).astype(np.uint8)[np.newaxis, :]
+        else:
+            # normalize the labels to 0-255 range for visualization
+            num_objects = num_labels - 1  # Exclude background label 0
+            normalized_labels = labels * (255 // num_objects)  # Normalize to 0-255, will never reach 1
+            colored = cv2.applyColorMap(normalized_labels.astype(np.uint8), self._COLORMAPS[colormap])
+            # force label=0 to be black, because colormap[0] is usually not pure black (like deep blue/purple)
+            colored[labels == 0] = [0, 0, 0]
+            preview = colored[np.newaxis, :]
+
+
+        return (num_labels, labels, stats, centroids, preview,)

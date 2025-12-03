@@ -57,7 +57,11 @@ class JsonSave:
 class JsonLoad:
     @classmethod
     def INPUT_TYPES(cls):
-        files = [f for f in os.listdir(JSON_DIR) if f.endswith('.json')]
+        if not os.path.exists(JSON_DIR):
+            os.makedirs(JSON_DIR)
+            files = []
+        else:
+            files = sorted([f for f in os.listdir(JSON_DIR) if f.endswith('.json')])
         
         return {
             "required": {
@@ -127,7 +131,11 @@ class NparraySave:
 class NparrayLoad:
     @classmethod
     def INPUT_TYPES(cls):
-        files = cls.get_files()
+        if not os.path.exists(NPARRAY_DIR):
+            os.makedirs(NPARRAY_DIR)
+            files = []
+        else:
+            files = sorted([f for f in os.listdir(NPARRAY_DIR) if f.endswith('.npy')])
         
         return {
             "required": {
@@ -138,11 +146,6 @@ class NparrayLoad:
                 }),
             },
         }
-    
-    @staticmethod
-    def get_files():
-        files = [f for f in os.listdir(NPARRAY_DIR) if f.endswith('.npy')]
-        return sorted(files)
     
     RETURN_TYPES = ("NPARRAY",)
     RETURN_NAMES = ("nparray",)
