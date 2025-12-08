@@ -25,6 +25,8 @@ try:
         "JsonLoad",
         "NparraySave",
         "NparrayLoad",
+        "SaveNparrayImage",
+        "PreviewNparrayImage",
 
         "Printf",
         "SliceList",
@@ -55,6 +57,7 @@ try:
         "MedianBlur",
         "Blur",
 
+        "Sobel",
         "Canny",
         "HoughLines",
         "HoughLinesP",
@@ -86,9 +89,22 @@ try:
         "KLargestPoints",
         "PointToLineParams",
         "IntersectImageWithMask",
-
+        "MorphologyByRegions",
+        "MorphologyByRegionsWithStats",
+        
+        "DrawQuiver",
+        "LabelsToContours",
+        "ContoursToLabels",
+        "LabelsPreview",
+        "CreateGVF",
+        "GVFSnake",
+        
     ):
         if hasattr(nodes_xfeat, name):
             AddMapping(getattr(nodes_xfeat, name))
+
+    # from .py.nodes_xfeat import MorphCloseByRegions
+    # AddMapping(MorphCloseByRegions)
+
 except ImportError as e:
     log("Premium nodes ignored", msg_color="BRIGHT_GREEN")

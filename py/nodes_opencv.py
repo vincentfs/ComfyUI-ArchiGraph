@@ -1,10 +1,12 @@
-CURRENT_CATEGORY = "🐦‍🔥 ArchiGraph/⭕ OpenCV" # organized by py file
+CURRENT_CATEGORY = "🐦‍🔥 ArchiGraph/📀 OpenCV" # organized by py file
 
 import torch
 import numpy as np
 import cv2
 import comfy.model_management as model_management
 from .anyType import ANY
+from .enums import ColorEnum, ThreshEnum, BorderEnum, ContourModeEnum, \
+    ContourMethodEnum, DepthEnum, ColormapEnum
 
 #---------------------------------------------------------------------------------------------------------------------#
 # Helpers
@@ -133,19 +135,11 @@ class Threshold:
     DESCRIPTION = "OpenCV Threshold. Applies a fixed-level threshold to each array element."
 
     def execute(self, nparrays, thresh, maxval, type):
-        TypeEnum = {
-            "BINARY": cv2.THRESH_BINARY,
-            "BINARY_INV": cv2.THRESH_BINARY_INV,
-            "TRUNC": cv2.THRESH_TRUNC,
-            "TOZERO": cv2.THRESH_TOZERO,
-            "TOZERO_INV": cv2.THRESH_TOZERO_INV,
-        }
-
         batch_size = nparrays.shape[0]
         result = np.zeros_like(nparrays)
 
         for b in range(batch_size):
-            _, result[b] = cv2.threshold(nparrays[b], thresh, maxval, TypeEnum[type])
+            _, result[b] = cv2.threshold(nparrays[b], thresh, maxval, ThreshEnum[type])
 
         return (result,)
 
@@ -195,12 +189,6 @@ class GaussianBlur:
     DESCRIPTION = "OpenCV GaussianBlur. Default anchor is center of the kernel."
 
     def execute(self, nparrays, ksize_x, ksize_y, sigma_x, sigma_y, borderType):
-        BorderEnum = {
-            "DEFAULT": cv2.BORDER_DEFAULT,
-            "CONSTANT": cv2.BORDER_CONSTANT,
-            "REPLICATE": cv2.BORDER_REPLICATE,
-            "WRAP": cv2.BORDER_WRAP,
-        }
         if ksize_y == 1: ksize_y = ksize_x
 
         batch_size = nparrays.shape[0]
@@ -282,12 +270,6 @@ class Blur:
     DESCRIPTION = "OpenCV Blur. Default anchor is center of the kernel."
 
     def execute(self, nparrays, ksize_x, ksize_y, borderType):
-        BorderEnum = {
-            "DEFAULT": cv2.BORDER_DEFAULT,
-            "CONSTANT": cv2.BORDER_CONSTANT,
-            "REPLICATE": cv2.BORDER_REPLICATE,
-            "WRAP": cv2.BORDER_WRAP,
-        }
         if ksize_y == 1: ksize_y = ksize_x
 
         batch_size = nparrays.shape[0]
@@ -297,7 +279,71 @@ class Blur:
             result[b] = cv2.blur(nparrays[b], (ksize_x, ksize_y), borderType=BorderEnum[borderType])
 
         return (result,)
+
+#---------------------------------------------------------------------------------------------------------------------#
+class Sobel:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "nparrays": ("NPARRAY",),
+                "dx": ("INT", {
+                    "default": 1,
+                    "min": 0,
+                    "max": 2,
+                    "tooltip": "Order of the derivative x."
+                }),
+                "dy": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "max": 2,
+                    "tooltip": "Order of the derivative y."
+                }),
+                "ksize": ("INT", {
+                    "default": 3,
+                    "min": 1,
+                    "max": 31,
+                    "step": 2, # Must be odd number
+                    "tooltip": "Aperture size for the Sobel operator. Must be odd and greater than 1."
+                }),
+                "ddepth": (["CV_8U", "CV_8S", "CV_16U", "CV_16S", "CV_32S", "CV_32F", "CV_64F"], {
+                    "default": "CV_32F",
+                    "tooltip": "Desired depth of the destination image. Use CV_32F/64F for float output."
+                }),
+                "converted": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "If true, the output will be converted with cv2.convertScaleAbs() to 8-bit unsigned integer. If false, the output will remain unprocessed."
+                }),
+            },
+        }
     
+    RETURN_TYPES = ("NPARRAY",)
+    RETURN_NAMES = ("dst",)
+    FUNCTION = "execute"
+    NAME = "Sobel"
+    CATEGORY = CURRENT_CATEGORY
+    DESCRIPTION = "OpenCV Sobel. Computes the first, second, third, or mixed image derivatives using an extended Sobel operator."
+
+    def execute(self, nparrays, dx, dy, ksize, ddepth, converted):
+        batch_size = nparrays.shape[0]
+
+        batches = []
+        for b in range(batch_size):
+            # force input to be gray
+            if (len(nparrays[b].shape) == 3 and nparrays[b].shape[2] == 3):
+                gray = cv2.cvtColor(nparrays[b], cv2.COLOR_BGR2GRAY)
+            else:
+                gray = nparrays[b]
+
+            if converted:
+                batch = cv2.convertScaleAbs(cv2.Sobel(gray, DepthEnum[ddepth], dx, dy, ksize=ksize))
+            else:
+                batch = cv2.Sobel(gray, DepthEnum[ddepth], dx, dy, ksize=ksize)
+            batches.append(batch)
+
+        result = np.stack(batches, axis=0)
+        return (result,)
+
 #---------------------------------------------------------------------------------------------------------------------#
 class Canny:
     @classmethod
@@ -396,7 +442,7 @@ class HoughLines:
             },
         }
     
-    RETURN_TYPES = (ANY,)
+    RETURN_TYPES = ("LIST_LINE",)
     RETURN_NAMES = ("lines",)
     FUNCTION = "execute"
     NAME = "Hough Lines"
@@ -459,7 +505,7 @@ class HoughLinesP:
             },
         }
     
-    RETURN_TYPES = (ANY,)
+    RETURN_TYPES = ("LIST_LINE",)
     RETURN_NAMES = ("lines",)
     FUNCTION = "execute"
     NAME = "Hough Lines Probabilistic"
@@ -498,7 +544,7 @@ class FindContours:
                     "tooltip": "Binary image. Non-zero pixels are treated as 1's. \nYou can use compare(), threshold(), inRange(), Canny() etc. to create a binary image."
                 }),
                 "mode": (["RETR_EXTERNAL", "RETR_LIST", "RETR_CCOMP", "RETR_TREE"], {
-                    "default": "RETR_EXTERNAL",
+                    "default": "RETR_CCOMP",
                     "tooltip": "Contour retrieval mode"
                 }),
                 "method": (["CHAIN_APPROX_NONE", "CHAIN_APPROX_SIMPLE", "CHAIN_APPROX_TC89_L1", "CHAIN_APPROX_TC89_KCOS"], {
@@ -508,8 +554,9 @@ class FindContours:
             },
         }
     
-    RETURN_TYPES = (ANY, ANY, )
-    RETURN_NAMES = ("contours", "hierachy", )
+    SINGULAR_ONLY = True
+    RETURN_TYPES = ("CV_CONTOURS", "CV_HIERARCHY", )
+    RETURN_NAMES = ("contours", "hierarchy", )
     FUNCTION = "execute"
     NAME = "Find Contours"
     CATEGORY = CURRENT_CATEGORY
@@ -518,39 +565,18 @@ class FindContours:
     "Return: - hierarchy, containing info about topology. Same length as contours. Each has 4 elements, [next, prev, first child, parent]." 
 
     def execute(self, Np_bins, mode, method):
-        ModeEnum = {
-            "RETR_EXTERNAL": cv2.RETR_EXTERNAL,
-            "RETR_LIST": cv2.RETR_LIST,
-            "RETR_CCOMP": cv2.RETR_CCOMP,
-            "RETR_TREE": cv2.RETR_TREE,
-        }
-        MethodEnum = {
-            "CHAIN_APPROX_NONE": cv2.CHAIN_APPROX_NONE,
-            "CHAIN_APPROX_SIMPLE": cv2.CHAIN_APPROX_SIMPLE,
-            "CHAIN_APPROX_TC89_L1": cv2.CHAIN_APPROX_TC89_L1,
-            "CHAIN_APPROX_TC89_KCOS": cv2.CHAIN_APPROX_TC89_KCOS,
-        }
+        if Np_bins.shape[0] != 1:
+            raise ValueError("FindContours node only supports batch size of 1.")
 
-        batch_size = Np_bins.shape[0]
+        # Convert to grayscale if needed
+        if len(Np_bins[0].shape) == 3 and Np_bins[0].shape[2] == 3:
+            gray = cv2.cvtColor(Np_bins[0], cv2.COLOR_BGR2GRAY)
+        else:
+            gray = Np_bins[0]
 
-        list_contours = []
-        list_hierarchy = []
+        contours, hierarchy = cv2.findContours(gray, ContourModeEnum[mode], ContourMethodEnum[method])
 
-        for b in range(batch_size):
-            # Convert to grayscale if needed
-            if len(Np_bins[b].shape) == 3 and Np_bins[b].shape[2] == 3:
-                gray = cv2.cvtColor(Np_bins[b], cv2.COLOR_BGR2GRAY)
-            else:
-                gray = Np_bins[b]
-
-            contours, hierarchy = cv2.findContours(gray, ModeEnum[mode], MethodEnum[method])
-            list_contours.append(contours)
-            list_hierarchy.append(hierarchy)
-
-            # contour_image = np.zeros_like(Np_bins[b])
-            # cv2.drawContours(contour_image, contours, -1, (255, 255, 255), 1)
-
-        return (list_contours, list_hierarchy, )
+        return (contours, hierarchy, )
     
 #---------------------------------------------------------------------------------------------------------------------#
 class DrawContours:
@@ -561,7 +587,7 @@ class DrawContours:
                 "nparrays": ("NPARRAY", {
                     "tooltip": "Input image to draw contours on. Should be color image."
                 }),
-                "contours": (ANY, {
+                "contours": ("CV_CONTOURS", {
                     "tooltip": "Contours to draw. Use FindContours node to get contours."
                 }),
                 "color": (["WHITE", "BLACK", "RED", "GREEN", "BLUE"], {
@@ -570,10 +596,10 @@ class DrawContours:
                 }),
                 "thickness": ("INT", {
                     "default": 2,
-                    "min": 1,
+                    "min": -1,
                     "max": 20,
                     "step": 1,
-                    "tooltip": "Thickness of the contour lines."
+                    "tooltip": "Thickness of the contour lines. -1 means filled."
                 }),
                 "hideBackground": ("BOOLEAN", {
                     "default": False,
@@ -582,6 +608,7 @@ class DrawContours:
             },
         }
     
+    SINGULAR_ONLY = True
     RETURN_TYPES = ("NPARRAY",)
     RETURN_NAMES = ("dst",)
     FUNCTION = "execute"
@@ -590,28 +617,22 @@ class DrawContours:
     DESCRIPTION = "OpenCV Draw Contours. Always draws all contours in the list."
 
     def execute(self, nparrays, contours, color, thickness, hideBackground):
-        batch_size = min(nparrays.shape[0], len(contours)) # in case different batch size, use the smaller ones
-        colorEnum = {
-            "WHITE": (255, 255, 255),
-            "BLACK": (0, 0, 0),
-            "RED":   (0, 0, 255),
-            "GREEN": (0, 255, 0),
-            "BLUE":  (255, 0, 0),
-        }
-
-        result = np.zeros_like(nparrays)
+        if nparrays.shape[0] != 1:
+            raise ValueError("DrawContours node only supports batch size of 1.")
 
         if hideBackground:
             height = nparrays.shape[1]
             width = nparrays.shape[2]
             input = np.zeros((height, width, 3), dtype=np.uint8)
-            for b in range(batch_size):
-                result[b] = cv2.drawContours(input, contours[b], -1, colorEnum[color], thickness)
         else:
-            for b in range(batch_size):
-                result[b] = cv2.drawContours(nparrays[b], contours[b], -1, colorEnum[color], thickness)
-
-        return (result,)
+            # convert to color if needed
+            if len(nparrays[0].shape) == 2 or nparrays[0].shape[2] == 1:
+                input = cv2.cvtColor(nparrays[0], cv2.COLOR_GRAY2BGR)
+            else:
+                input = nparrays[0]
+        
+        result = cv2.drawContours(input, contours, -1, ColorEnum[color], thickness)
+        return (result[np.newaxis, :],)
 
 #---------------------------------------------------------------------------------------------------------------------#
 class Circles:
@@ -655,13 +676,6 @@ class Circles:
 
     def execute(self, nparrays, points, radius, color, thickness):
         batch_size = nparrays.shape[0]
-        colorEnum = {
-            "WHITE": (255, 255, 255),
-            "BLACK": (0, 0, 0),
-            "RED":   (0, 0, 255),
-            "GREEN": (0, 255, 0),
-            "BLUE":  (255, 0, 0),
-        }
 
         result = np.zeros((batch_size, nparrays.shape[1], nparrays.shape[2], 3), dtype=np.uint8)
 
@@ -673,7 +687,7 @@ class Circles:
                 result[b] = nparrays[b]
 
             for point in points[b]:
-                result[b] = cv2.circle(result[b], point, radius, colorEnum[color], thickness)
+                result[b] = cv2.circle(result[b], point, radius, ColorEnum[color], thickness)
 
         return (result,)
     
@@ -690,53 +704,28 @@ class ConnectedComponentsWithStats:
                     "default": "8",
                     "tooltip": "Pixel connectivity to use."
                 }),
-                "colormap": (list(cls._COLORMAPS.keys()), {
-                    "default": "HSV",
-                    "tooltip": "Colormap to use for preview."
+                "removeSurrounding": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "If true, the surrounding part (different from background) will be removed from output."
                 }),
             },
         }
     
     SINGULAR_ONLY = True
-    RETURN_TYPES = ("INT", "NPARRAY", ANY, ANY, "NPARRAY",)
-    RETURN_NAMES = ("num_labels", "labels", "stats", "centroids", "preview",)
+    RETURN_TYPES = ("INT", "NPARRAY", ANY, ANY,)
+    RETURN_NAMES = ("num_labels", "labels", "stats", "centroids",)
     FUNCTION = "execute"
     NAME = "Connected Components With Stats"
     CATEGORY = CURRENT_CATEGORY
     DESCRIPTION = "OpenCV Connected Components With Stats. Labels connected components in a binary image and computes statistics for each component."
 
-    _COLORMAPS = {
-        'AUTUMN': cv2.COLORMAP_AUTUMN,
-        'BONE': cv2.COLORMAP_BONE,
-        'JET': cv2.COLORMAP_JET,
-        'WINTER': cv2.COLORMAP_WINTER,
-        'RAINBOW': cv2.COLORMAP_RAINBOW,  # 真正的彩虹色阶
-        'OCEAN': cv2.COLORMAP_OCEAN,
-        'SUMMER': cv2.COLORMAP_SUMMER,
-        'SPRING': cv2.COLORMAP_SPRING,
-        'COOL': cv2.COLORMAP_COOL,
-        'HSV': cv2.COLORMAP_HSV,
-        'PINK': cv2.COLORMAP_PINK,
-        'HOT': cv2.COLORMAP_HOT,
-        'PARULA': cv2.COLORMAP_PARULA,
-        'MAGMA': cv2.COLORMAP_MAGMA,
-        'INFERNO': cv2.COLORMAP_INFERNO,
-        'PLASMA': cv2.COLORMAP_PLASMA,
-        'VIRIDIS': cv2.COLORMAP_VIRIDIS,
-        'CIVIDIS': cv2.COLORMAP_CIVIDIS,
-        'TWILIGHT': cv2.COLORMAP_TWILIGHT,
-        'TWILIGHT_SHIFTED': cv2.COLORMAP_TWILIGHT_SHIFTED,
-        'TURBO': cv2.COLORMAP_TURBO,
-        'DEEPGREEN': cv2.COLORMAP_DEEPGREEN,
-    }
-
-    def execute(self, Np_bin, connectivity, colormap):
+    def execute(self, Np_bin, connectivity, removeSurrounding):
         if Np_bin.shape[0] != 1:
             raise ValueError("ConnectedComponentsWithStats node only supports batch size of 1.")
         ConnectivityInput = 4 if connectivity == "4" else 8
 
         # Convert to grayscale if needed
-        if len(Np_bin.shape) == 3 and Np_bin.shape[2] == 3:
+        if len(Np_bin[0].shape) == 3 and Np_bin[0].shape[2] == 3:
             gray = cv2.cvtColor(Np_bin[0], cv2.COLOR_BGR2GRAY)
         else:
             gray = Np_bin[0]
@@ -745,17 +734,15 @@ class ConnectedComponentsWithStats:
 
         if num_labels <= 1:
             raise ValueError("No objects found in the binary image.")
-        elif num_labels == 2:
-            # use black and white directly
-            preview = (labels * 255).astype(np.uint8)[np.newaxis, :]
-        else:
-            # normalize the labels to 0-255 range for visualization
-            num_objects = num_labels - 1  # Exclude background label 0
-            normalized_labels = labels * (255 // num_objects)  # Normalize to 0-255, will never reach 1
-            colored = cv2.applyColorMap(normalized_labels.astype(np.uint8), self._COLORMAPS[colormap])
-            # force label=0 to be black, because colormap[0] is usually not pure black (like deep blue/purple)
-            colored[labels == 0] = [0, 0, 0]
-            preview = colored[np.newaxis, :]
+        
+        if removeSurrounding:
+            corner_labels = (labels[0,0], labels[0,-1], labels[-1,0], labels[-1,-1])
+            # if more than 3 corners share the same label, consider it as surrounding
+            surrounding_label = max(set(corner_labels), key=corner_labels.count)
+            if surrounding_label != 0 and corner_labels.count(surrounding_label) >= 3:
+                labels[labels == surrounding_label] = 0  # set surrounding to background
+                # re-label the largest label to use surrounding_label
+                labels[labels == num_labels - 1] = surrounding_label
+                num_labels -= 1
 
-
-        return (num_labels, labels, stats, centroids, preview,)
+        return (num_labels, labels, stats, centroids, )

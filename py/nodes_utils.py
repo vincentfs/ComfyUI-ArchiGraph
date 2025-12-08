@@ -1,11 +1,16 @@
 CURRENT_CATEGORY = "🐦‍🔥 ArchiGraph/🛠️ Utils" # organized by py file
 
 import os
+import random
+
 import torch
 from comfy.utils import common_upscale
 import numpy as np
 from .anyType import ANY
+from .nodes_opencv import Nparray2Image
 
+# import comfyui core node
+from nodes import SaveImage 
 import folder_paths
 NPARRAY_DIR = os.path.join(folder_paths.get_output_directory(), "nparrays") 
 JSON_DIR = os.path.join(folder_paths.get_output_directory(), "jsons")
@@ -62,10 +67,13 @@ class JsonLoad:
             files = []
         else:
             files = sorted([f for f in os.listdir(JSON_DIR) if f.endswith('.json')])
+
+        if len(files) == 0:
+            files = ["None"]  # Placeholder to avoid empty list issues
         
         return {
             "required": {
-                "jsonfile": (sorted(files), ),
+                "jsonfile": (files, ),
                 "filename_noExt": ("STRING", {
                     "default": "",
                     "tooltip": "Filename without extension (extension .json will be added automatically). If specified, npyfile will be ignored.",
@@ -85,6 +93,10 @@ class JsonLoad:
 
         if filename_noExt != "":
             jsonfile = filename_noExt + ".json"
+        else:
+            if jsonfile == "None":
+                raise FileNotFoundError("JSON files not found in the jsons directory.")
+
         file_path = os.path.join(JSON_DIR, jsonfile)
 
         if not os.path.exists(file_path):
@@ -136,6 +148,9 @@ class NparrayLoad:
             files = []
         else:
             files = sorted([f for f in os.listdir(NPARRAY_DIR) if f.endswith('.npy')])
+
+        if len(files) == 0:
+            files = ["None"]  # Placeholder to avoid empty list issues
         
         return {
             "required": {
@@ -157,6 +172,10 @@ class NparrayLoad:
     def execute(self, npyfile, filename_noExt=""):
         if filename_noExt != "":
             npyfile = filename_noExt + ".npy"
+        else:
+            if npyfile == "None":
+                raise FileNotFoundError("Npy files not found in the nparrays directory.")
+
         file_path = os.path.join(NPARRAY_DIR, npyfile)
 
         if not os.path.exists(file_path):
@@ -167,17 +186,71 @@ class NparrayLoad:
         return (nparray,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+class SaveNparrayImage(SaveImage):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "nparrays": ("NPARRAY", {"tooltip": "The nparray images to save."}),
+                "filename_prefix": ("STRING", {"default": "ComfyUI", "tooltip": "The prefix for the file to save. This may include formatting information such as %date:yyyy-MM-dd% or %Empty Latent Image.width% to include values from nodes."})
+            },
+            "hidden": {
+                "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"
+            },
+        }
+
+    OUTPUT_NODE = True
+    RETURN_TYPES = ()
+    FUNCTION = "execute"
+    NAME = "Save Nparray Image"
+    CATEGORY = CURRENT_CATEGORY
+    DESCRIPTION = "Saves the input nparray images to your ComfyUI output directory."
+
+    def execute(self, nparrays, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+        images = Nparray2Image().execute(nparrays)[0]
+        return super().save_images(images, filename_prefix, prompt, extra_pnginfo)
+
+#---------------------------------------------------------------------------------------------------------------------#
+class PreviewNparrayImage(SaveNparrayImage):
+    def __init__(self):
+        self.output_dir = folder_paths.get_temp_directory()
+        self.type = "temp"
+        self.prefix_append = "_temp_" + ''.join(random.choice("abcdefghijklmnopqrstupvxyz") for x in range(5))
+        self.compress_level = 1
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required":
+                    {"nparrays": ("NPARRAY", ), },
+                "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+                }
+    
+    NAME = "Preview Nparray Image"
+    DESCRIPTION = "Previews the input nparray images by saving them to a temporary directory."
+
+#---------------------------------------------------------------------------------------------------------------------#
 class Printf:
+    '''
+    Later can be used to unravel list and show specified elements only.
+    '''
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "any": (ANY, {
+                    "forceInput": True,
                     "tooltip": "Select objects to print."
                 }),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+                "extra_pnginfo": "EXTRA_PNGINFO",
+            },
         }
 
+    OUTPUT_NODE = True
+    # INPUT_IS_LIST = True # if the input is a list, workflow will pass each element separately
+    OUTPUT_IS_LIST = (True,)
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("string",)
     FUNCTION = "execute"
@@ -185,28 +258,47 @@ class Printf:
     CATEGORY = CURRENT_CATEGORY
     DESCRIPTION = "Print object info to console for debugging. Supports any input type." 
 
-    def execute(self, any):
-        message = ""
+    def execute(self, any, unique_id=None, extra_pnginfo=None):
+        # prepare text, caution: text is parse at frontend as list of strings
+        text = []
         if isinstance(any, np.ndarray):
-            message = f"Type: Nparray, Shape: {any.shape}, Dtype: {any.dtype}"
+            text.append(f"Type: Nparray, Shape: {any.shape}, Dtype: {any.dtype}")
         elif isinstance(any, torch.Tensor):
-            message = f"Type: Tensor, Shape: {any.shape}, Dtype: {any.dtype}, Device: {any.device}"
+            text.append(f"Type: Tensor, Shape: {any.shape}, Dtype: {any.dtype}, Device: {any.device}")
         elif isinstance(any, list):
-            message = f"Type: List, Length: {len(any)}\n"
+            text.append(f"Type: List, Length: {len(any)}")
             for i, item in enumerate(any):
-                message += f"--[{i}]: Type: {type(item)}, Value:\n{item}\n"
+                text.append(f"[{i}]: Type: {type(item)}, Value:\n{item}")
         elif isinstance(any, dict):
-            message = f"Type: Dict, Length: {len(any)}\n"
+            text.append(f"Type: Dict, Length: {len(any)}")
             for key, value in any.items():
-                message += f"--Key: {key}, Type: {type(value)}, Value:\n{value}\n"
+                text.append(f"Key: {key}, Type: {type(value)}, Value:\n{value}")
         elif isinstance(any, tuple):
-            message = f"Type: Tuple, Length: {len(any)}\n"
+            text.append(f"Type: Tuple, Length: {len(any)}")
             for i, item in enumerate(any):
-                message += f"--[{i}]: Type: {type(item)}, Value:\n{item}\n"
+                text.append(f"[{i}]: Type: {type(item)}, Value:\n{item}")
         else:
-            message = f"Type: {type(any)}, Value:\n{any}\n"
+            text.append(f"Type: {type(any)}, Value:\n{any}")
 
-        return (message,)
+        # save to workflow pnginfo
+        if unique_id is not None and extra_pnginfo is not None:
+            if not isinstance(extra_pnginfo, list):
+                print("Error: extra_pnginfo is not a list")
+            elif (
+                not isinstance(extra_pnginfo[0], dict)
+                or "workflow" not in extra_pnginfo[0]
+            ):
+                print("Error: extra_pnginfo[0] is not a dict or missing 'workflow' key")
+            else:
+                workflow = extra_pnginfo[0]["workflow"]
+                node = next(
+                    (x for x in workflow["nodes"] if str(x["id"]) == str(unique_id[0])),
+                    None,
+                )
+                if node:
+                    node["widgets_values"] = [text]
+
+        return {"ui": {"text": text}, "result": (text,)}
 
 #---------------------------------------------------------------------------------------------------------------------#
 class SliceList:

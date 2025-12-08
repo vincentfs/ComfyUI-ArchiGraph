@@ -5,3 +5,4 @@ __pycache__
 *.pth
 *.ini
 py/nodes_xfeat.py
+examples/xfeat
