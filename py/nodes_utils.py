@@ -1,21 +1,36 @@
 CURRENT_CATEGORY = "🐦‍🔥 ArchiGraph/🛠️ Utils" # organized by py file
 
 import os
-import random
+import random, uuid, hashlib, time
 
 import torch
-from comfy.utils import common_upscale
 import numpy as np
+from PIL import Image
 from .anyType import ANY
 from .nodes_opencv import Nparray2Image
+from ..node_registry import comfy_node
 
 # import comfyui core node
+from server import PromptServer # import comfyui server module to manupulate prompt queue
 from nodes import SaveImage 
 import folder_paths
 NPARRAY_DIR = os.path.join(folder_paths.get_output_directory(), "nparrays") 
 JSON_DIR = os.path.join(folder_paths.get_output_directory(), "jsons")
 
 #---------------------------------------------------------------------------------------------------------------------#
+# Helpers
+#---------------------------------------------------------------------------------------------------------------------#
+def resolve_path(path: str) -> str:      
+    # 1. 展开环境变量（如 %USERPROFILE%）
+    path = os.path.expandvars(path)
+    # 2. 展开用户目录（如 ~ 表示用户主目录）
+    path = os.path.expanduser(path)
+    # 3. 转换为绝对路径并规范化
+    path = os.path.abspath(path)
+    return path
+
+#---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class JsonSave:
     @classmethod
     def INPUT_TYPES(cls):
@@ -59,6 +74,7 @@ class JsonSave:
         return (file_path,)
     
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class JsonLoad:
     @classmethod
     def INPUT_TYPES(cls):
@@ -108,6 +124,7 @@ class JsonLoad:
         return (data,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class NparraySave:
     @classmethod
     def INPUT_TYPES(cls):
@@ -140,6 +157,7 @@ class NparraySave:
         return (file_path,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class NparrayLoad:
     @classmethod
     def INPUT_TYPES(cls):
@@ -186,6 +204,7 @@ class NparrayLoad:
         return (nparray,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class SaveNparrayImage(SaveImage):
     @classmethod
     def INPUT_TYPES(cls):
@@ -211,6 +230,7 @@ class SaveNparrayImage(SaveImage):
         return super().save_images(images, filename_prefix, prompt, extra_pnginfo)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class PreviewNparrayImage(SaveNparrayImage):
     def __init__(self):
         self.output_dir = folder_paths.get_temp_directory()
@@ -229,9 +249,10 @@ class PreviewNparrayImage(SaveNparrayImage):
     DESCRIPTION = "Previews the input nparray images by saving them to a temporary directory."
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Printf:
     '''
-    Later can be used to unravel list and show specified elements only.
+    TODO: Can be used to unravel list and show specified elements only.
     '''
     @classmethod
     def INPUT_TYPES(cls):
@@ -249,7 +270,7 @@ class Printf:
         }
 
     OUTPUT_NODE = True
-    # INPUT_IS_LIST = True # if the input is a list, workflow will pass each element separately
+    INPUT_IS_LIST = False # if the input is a list, workflow will pass each element separately
     OUTPUT_IS_LIST = (True,)
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("string",)
@@ -280,27 +301,10 @@ class Printf:
         else:
             text.append(f"Type: {type(any)}, Value:\n{any}")
 
-        # save to workflow pnginfo
-        if unique_id is not None and extra_pnginfo is not None:
-            if not isinstance(extra_pnginfo, list):
-                print("Error: extra_pnginfo is not a list")
-            elif (
-                not isinstance(extra_pnginfo[0], dict)
-                or "workflow" not in extra_pnginfo[0]
-            ):
-                print("Error: extra_pnginfo[0] is not a dict or missing 'workflow' key")
-            else:
-                workflow = extra_pnginfo[0]["workflow"]
-                node = next(
-                    (x for x in workflow["nodes"] if str(x["id"]) == str(unique_id[0])),
-                    None,
-                )
-                if node:
-                    node["widgets_values"] = [text]
-
         return {"ui": {"text": text}, "result": (text,)}
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class SliceList:
     @classmethod
     def INPUT_TYPES(cls):
@@ -338,6 +342,7 @@ class SliceList:
         return (sliced,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class SliceSublist:
     @classmethod
     def INPUT_TYPES(cls):
@@ -381,148 +386,306 @@ class SliceSublist:
         return (sliced,)
     
 #---------------------------------------------------------------------------------------------------------------------#
-class ImageResizeTo:
-    upscale_methods = ["lanczos", "nearest-exact", "bilinear", "area", "bicubic"]
-
+@comfy_node
+class SaveImageToPath:
     def __init__(self):
-        pass
+        self.compress_level = 4
 
     @classmethod
     def INPUT_TYPES(cls):
-        """
-            Return a dictionary which contains config for all input fields.
-            Some types (string): "MODEL", "VAE", "CLIP", "CONDITIONING", "LATENT", "IMAGE", "INT", "STRING", "FLOAT".
-            Input types "INT", "STRING" or "FLOAT" are special values for fields on the node.
-            The type can be a list for selection.
-
-            Returns: `dict`:
-                - Key input_fields_group (`string`): Can be either required, hidden or optional. A node class must have property `required`
-                - Value input_fields (`dict`): Contains input fields config:
-                    * Key field_name (`string`): Name of a entry-point method's argument
-                    * Value field_config (`tuple`):
-                        + First value is a string indicate the type of field or a list for selection.
-                        + Second value is a config for type "INT", "STRING" or "FLOAT".
-        """
         return {
             "required": {
-                "image": ("IMAGE",{
-                    "lazy": False # Will only be evaluated if check_lazy_status requires it
+                "images": ("IMAGE", {"tooltip": "The images to save."}),
+                "target_folder": ("STRING", {
+                    "default": "%USERPROFILE%",
+                    "tooltip": "Target size for resizing."
                 }),
-                "edge_size": ("INT", {
-                    "default": 1024, 
-                    "min": 16, #Minimum value
-                    "max": 8192, #Maximum value
-                    "step": 2, #Slider's step
-                    "display": "number", # Cosmetic only: display as "number" or "slider"
+                "filename": ("STRING", {
+                    "default": "output",
+                    "tooltip": "Filename without extension (extension .png will be added automatically).",
                 }),
-                "edge_type": ("BOOLEAN", {
-                    "default": True, # Default value
-                    "label_on": "By Short Edge", # Label for the first option
-                    "label_off": "By Long Edge", # Label for the second option
-                }),
-                # "is_by_short": ("BOOL", {
-
-                # }),
-                "upscale_method": (cls.upscale_methods,),
             },
         }
-
-    RETURN_TYPES = ("IMAGE", "INT", "INT", "STRING")
-    RETURN_NAMES = ("IMAGE", "prev_width", "prev_height", "log")
-    FUNCTION = "resize"
-    NAME = "Image Resize To"
+    
+    OUTPUT_NODE = True
+    RETURN_TYPES = ()
+    FUNCTION = "execute"
+    NAME = "Save Image To Path"
     CATEGORY = CURRENT_CATEGORY
-    DESCRIPTION = "Resizes an image by specify one edge size. Proportion is kept by default."
+    DESCRIPTION = "TODO." 
 
-    def resize(self, image, edge_size, edge_type, upscale_method):
+    def execute(self, images, target_folder, filename):
 
-        # get original image size
-        B, H, W, C = image.shape
-        prev_width = W
-        prev_height = H
+        target_folder = resolve_path(target_folder)
 
-        image = image.movedim(-1, 1)
+        if not os.path.exists(target_folder):
+            try:
+                os.makedirs(target_folder, exist_ok=True)
+            except Exception as e:
+                print(f"AG {self.NAME}: Failed to create target folder: {target_folder}")
+                return ()
+            
+        file_path = os.path.join(target_folder, f"{filename}.png")
 
-        if edge_type:
-            if H < W:
-                new_height = edge_size
-                new_width = int(W * edge_size / H)
-            else:
-                new_width = edge_size
-                new_height = int(H * edge_size / W)
-        else:
-            if H > W:
-                new_height = edge_size
-                new_width = int(W * edge_size / H)
-            else:
-                new_width = edge_size
-                new_height = int(H * edge_size / W)
-
-        image = common_upscale(image, new_width, new_height, upscale_method, "disabled")
-        image = image.movedim(1, -1)
-
-        log = f"Resized from W{prev_width}xH{prev_height} to W{new_width}xH{new_height}."
-
-        return (image, prev_width, prev_height, log,)
+        i = 255. * images[0].cpu().numpy()
+        image = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
+        image.save(file_path, compress_level=4)
+        print(f"AG {self.NAME}: {file_path} created.")
+        return () # need to return something to avoid error in comfyui
 
 #---------------------------------------------------------------------------------------------------------------------#
-class Image2BW:
+@comfy_node
+class FilenameList:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "num_files": ("INT", {
+                    "default": 10,
+                    "min": 1,
+                    "tooltip": "Number of filenames to generate."
+                }),
+                "filename_prefix": ("STRING", {
+                    "default": "AG",
+                    "tooltip": "Prefix for the filenames."
+                }),
+                "num_digit": ("INT", {
+                    "default": 4,
+                    "tooltip": "Number of digits in the filename."
+                }),
+                "num_start": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "tooltip": "Starting number for the filename."
+                }),
+            },
+            "optional": {
+                "optional_idx": ("INT", {
+                    "default": -1,
+                    "min": -1,
+                    "tooltip": "If specified (not -1), generate only the filename for this index."
+                }),
+            },
+        }
+
+    RETURN_TYPES = (ANY,)
+    RETURN_NAMES = ("filenames",)
+    FUNCTION = "execute"
+    NAME = "Filename List"
+    CATEGORY = CURRENT_CATEGORY
+    DESCRIPTION = "Generates a list of filenames based on the given prefix and number format." 
+
+    def execute(self, num_files: int, filename_prefix: str, num_digit: int, num_start: int, optional_idx: int = -1):
+        if optional_idx == -1:
+            filenames = [f"{filename_prefix}_{i:0{num_digit}}.png" for i in range(num_start, num_start + num_files)]
+        else:
+            filenames = f"{filename_prefix}_{optional_idx:0{num_digit}}.png"
+        return (filenames,)
+
+#---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
+class FilepathGeneratorMaker:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "target_folder": ("STRING", {
+                    "default": "%USERPROFILE%",
+                    "tooltip": "Target folder to enumerate files from. Subfolders are not included."
+                }),
+                "file_extension": ("STRING", {
+                    "default": "",
+                    "tooltip": "File extension to filter by. If empty, all 'png/jpg/jpeg' are included."
+                }),
+            },
+        }
+
+    RETURN_TYPES = (ANY,)
+    RETURN_NAMES = ("enumerator",)
+    FUNCTION = "execute"
+    NAME = "Filepath Generator Maker"
+    CATEGORY = CURRENT_CATEGORY
+    DESCRIPTION = "Returns a generator for filepaths from the specified target folder with the given file extension." 
+
+    def execute(self, target_folder, file_extension):
+
+        target_folder = resolve_path(target_folder)
+        if not os.path.exists(target_folder):
+            print(f"AG {self.NAME}: Target folder does not exist: {target_folder}")
+            return (None,)
+
+        from pathlib import Path
+
+        def maker():
+            nonlocal target_folder
+            nonlocal file_extension
+            def file_generator(folder, extension):
+                path = Path(folder)
+                if extension != "":
+                    yield from path.rglob(f"*.{extension.lstrip('.')}")  # ensure extension starts with '.'
+                else:
+                    for ext in ['*.png', '*.jpg', '*.jpeg']:
+                        yield from path.rglob(ext)
+
+            return file_generator(target_folder, file_extension)
+
+        return (maker,)
+
+#---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
+class IterateItems:
     def __init__(self):
-        pass
+        self.index = 0
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",{
-                    "lazy": False
+                "items": (ANY, {
+                    "tooltip": "Input a list to iterate over its items."
                 }),
-                "reds":("INT", {"default": 40, "min": -200, "max": 300, "display": "slider"}),
-                "yellows":("INT", {"default": 60, "min": -200, "max": 300, "display": "slider"}),
-                "greens":("INT", {"default": 40, "min": -200, "max": 300, "display": "slider"}),
-                "cyans":("INT", {"default": 60, "min": -200, "max": 300, "display": "slider"}),
-                "blues":("INT", {"default": 20, "min": -200, "max": 300, "display": "slider"}),
-                "magentas":("INT", {"default": 80, "min": -200, "max": 300, "display": "slider"}),
+                "iteration_on": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Always re-run this node, even if the input list is unchanged."
+                }),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            }
         }
 
-    RETURN_TYPES = ("IMAGE", )
-    RETURN_NAMES = ("IMAGE", )
-    FUNCTION = "bw"
-    NAME = "Image to BW"
+    RETURN_TYPES = (ANY, "INT", )
+    RETURN_NAMES = ("item", "index", )
+    FUNCTION = "execute"
+    NAME = "Iterate Items"
     CATEGORY = CURRENT_CATEGORY
-    DESCRIPTION = "Converts an image to black & white like the adjustments in Photoshop."
+    DESCRIPTION = "Iterate over each item in the input list. Outputs one item at a time." 
 
-    def bw(self, image, reds, yellows, greens, cyans, blues, magentas):
+    INPUT_IS_LIST = False
+    OUTPUT_IS_LIST = (False, False, )
 
-        datatype = torch.float32
-        # get original image size
-        B, H, W, C = image.shape
-
-        color_ratios = torch.tensor([reds, greens, blues, cyans, magentas, yellows], dtype=datatype)
-        color_ratios = (color_ratios + 200) / 500
-
-        sorted_vals, sorted_idx = torch.sort(image, dim=3, descending=True) # BxHxWxC
-
-        # Get the color ratio value of the maximum channel
-        max_idx = sorted_idx[:, :, :, 0].unsqueeze(-1) # BxHxWx1
-        ratios_reshaped = color_ratios.unsqueeze(0).unsqueeze(0).unsqueeze(0).expand(B,H,W,-1) # BxHxWx6
-        ratio_max = torch.gather(ratios_reshaped, 3, max_idx) # BxHxWx1
-
-        combo_idx = (sorted_idx[:, :, :, -1] + 3).unsqueeze(-1) # BxHxWx1
-        ratio_combo = torch.gather(ratios_reshaped, 3, combo_idx) # BxHxWx1
-
-        # duplicate sorted_vals to a new tensor
-        sorted_vals_2 = sorted_vals.clone()
-        sorted_vals_2[:, :, :, 0] = 0
-
-        # move the first value to the last in sorted_vals_2
-        sorted_vals_2 = torch.cat((sorted_vals_2[:, :, :, 1:], sorted_vals_2[:, :, :, 0].unsqueeze(-1)), dim=-1) # BxHxWxC
+    def execute(self, items, iteration_on, unique_id=None):
+        # sanity check
+        if not (isinstance(items, list) or isinstance(items, tuple)):
+            print("Input is not a list or tuple, return as is.")
+            return (items, 0, )
         
-        diff = sorted_vals - sorted_vals_2 # BxHxWxC
-        ratio = torch.cat((ratio_max, ratio_combo, torch.ones_like(ratio_max, dtype=datatype)), dim=-1) # BxHxWx3
+        # get list item
+        item = items[self.index]
+        print(f"AG {self.NAME}: iterated {self.index + 1} times.")
 
-        # calculate the sum product of diff and ratio
-        final = torch.sum(diff * ratio,dim=-1) # BxHxWx1
+        # import json
+        # print(json.dumps(current_item)) # for debugging
 
-        return (final, )
+        # -----------------------------------------------------
+        # hack the prompt queue to add a new item to the queue
+        # -----------------------------------------------------
+        if iteration_on:
+            queue = PromptServer.instance.prompt_queue
+            current_item = queue.currently_running[queue.task_counter - 1]
+
+            # item structure: (number, prompt_id, prompt, extra_data, outputs_to_execute, sensitive)
+            new_item = list(current_item) # copy current item
+            new_item[0] = queue.task_counter # update index
+            new_item[1] = str(uuid.uuid4()) # generate new prompt_id
+            new_item[3]["create_time"] = int(time.time() * 1000)  # timestamp in milliseconds
+
+            # add new item to queue
+            if self.index < len(items) - 1:
+                queue.put(new_item)
+            
+            current_idx = self.index
+            self.index = (self.index + 1) % len(items) # will return to 0 when finished
+
+            return (item, current_idx, )
+
+        return (item, 0, )
+    
+    @classmethod
+    def IS_CHANGED(cls, items, iteration_on, unique_id=None):
+        if iteration_on:
+            return float("nan") # for faster update
+
+        input_str = f"{items}-{iteration_on}"
+        return hashlib.sha256(input_str.encode("utf-8")).hexdigest()
+
+#---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
+class IterateGenerator:
+    def __init__(self):
+        self.index = 0
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "generatorMaker": (ANY, {
+                    "tooltip": "Input a generator to iterate"
+                }),
+                "enabled": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Only run when enabled."
+                }),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            }
+        }
+
+    RETURN_TYPES = (ANY, "INT")
+    RETURN_NAMES = ("item", "index")
+    FUNCTION = "execute"
+    NAME = "Iterate Generator"
+    CATEGORY = CURRENT_CATEGORY
+    DESCRIPTION = "Iterate over each item from the generator. Outputs one item at a time." 
+
+    INPUT_IS_LIST = False
+    OUTPUT_IS_LIST = (False,False)
+
+    def execute(self, generatorMaker, enabled, unique_id=None):
+        # when not enabled, exit
+        if not enabled:
+            print(f"AG {self.NAME}: Iterator not enabled.")
+            return (None, 0, )
+        
+        # store generator at start
+        if self.index == 0:
+            self.generator = generatorMaker()
+
+        # iterate
+        try:
+            item = next(self.generator)
+        except StopIteration:
+            self.index = 0
+            print(f"AG {self.NAME}: StopIteration encountered.")
+            return (None, 0, )
+
+        # get list item
+        print(f"AG {self.NAME}: iterated {self.index + 1} times.")
+
+        # -----------------------------------------------------
+        # hack the prompt queue to add a new item to the queue
+        # -----------------------------------------------------
+        queue = PromptServer.instance.prompt_queue
+        current_item = queue.currently_running[queue.task_counter - 1]
+
+        # item structure: (number, prompt_id, prompt, extra_data, outputs_to_execute, sensitive)
+        new_item = list(current_item) # copy current item
+        new_item[0] = queue.task_counter # update index
+        new_item[1] = str(uuid.uuid4()) # generate new prompt_id
+        new_item[3]["create_time"] = int(time.time() * 1000)  # timestamp in milliseconds
+
+        # add new item to queue
+        queue.put(new_item)
+
+        # return index
+        current_idx = self.index
+        self.index += 1
+
+        return (item, current_idx, )
+    
+    @classmethod
+    def IS_CHANGED(cls, generatorMaker, enabled, unique_id=None):
+        if enabled:
+            return float("nan") # enforce update
+        return "unchanged" # don't update

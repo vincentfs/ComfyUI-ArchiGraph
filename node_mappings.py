@@ -1,5 +1,6 @@
 from .py.log import log
 import importlib
+from .node_registry import REGISTERED_NODES
 # import importlib.util # for auto import
 
 NODE_CLASS_MAPPINGS = {}
@@ -15,96 +16,29 @@ def AddMapping(node_class):
     else:
         NODE_DISPLAY_NAME_MAPPINGS["AG "+node_class.NAME] = node_class.NAME+" 🐦"
 
-#--------------------------------------------------------------------------------#
-# Load Image Nodes
-#--------------------------------------------------------------------------------#
+node_modules = [
+    ".py.nodes_photoedit",
+    ".py.nodes_utils",
+    ".py.nodes_opencv",
+    ".py.nodes_xfeat",
+    # New categories can be added here
+]
+
+# import modules
 try:
-    nodes_utils = importlib.import_module(".py.nodes_utils", package=__package__)
-    for name in (
-        "JsonSave",
-        "JsonLoad",
-        "NparraySave",
-        "NparrayLoad",
-        "SaveNparrayImage",
-        "PreviewNparrayImage",
-
-        "Printf",
-        "SliceList",
-        "SliceSublist",
-
-        "ImageResizeTo",
-        "Image2BW",
-    ):
-        if hasattr(nodes_utils, name):
-            AddMapping(getattr(nodes_utils, name))
-
+    for module_path in node_modules:
+        importlib.import_module(module_path, package=__package__)
 except ImportError as e:
-    log("Failed to load util nodes", msg_color="BRIGHT_GREEN")
+    log(f"Failed to load nodes from {module_path}", msg_color="BRIGHT_GREEN")
     log(e, msg_color="BRIGHT_GREEN")
 
-#--------------------------------------------------------------------------------#
-# Load OpenCV Nodes
-#--------------------------------------------------------------------------------#
-try:
-    nodes_opencv = importlib.import_module(".py.nodes_opencv", package=__package__)
-    for name in (
-        "Image2Nparray",
-        "Nparray2Image",
-
-        "Bitwise_not",
-        "Threshold",
-        "GaussianBlur",
-        "MedianBlur",
-        "Blur",
-
-        "Sobel",
-        "Canny",
-        "HoughLines",
-        "HoughLinesP",
-        "FindContours",
-        "DrawContours",
-        "Circles",
-
-        "ConnectedComponentsWithStats",
-    ):
-        if hasattr(nodes_opencv, name):
-            AddMapping(getattr(nodes_opencv, name))
-
-except ImportError as e:
-    log("Failed to load opencv nodes", msg_color="BRIGHT_GREEN")
-    log(e, msg_color="BRIGHT_GREEN")
-
-#--------------------------------------------------------------------------------#
-# Load XFeat Nodes
-#--------------------------------------------------------------------------------#
-try:
-    # use a dynamic (string) import to avoid static analysis warnings when the
-    # premium module is not present in free distributions
-    nodes_xfeat = importlib.import_module(".py.nodes_xfeat", package=__package__)
-    for name in (
-        "ColormapHotGray",
-        
-        "HoughLinesAccumulator",
-        "HoughLinesPlotter",
-        "KLargestPoints",
-        "PointToLineParams",
-        "IntersectImageWithMask",
-        "MorphologyByRegions",
-        "MorphologyByRegionsWithStats",
-        
-        "DrawQuiver",
-        "LabelsToContours",
-        "ContoursToLabels",
-        "LabelsPreview",
-        "CreateGVF",
-        "GVFSnake",
-        
-    ):
-        if hasattr(nodes_xfeat, name):
-            AddMapping(getattr(nodes_xfeat, name))
-
-    # from .py.nodes_xfeat import MorphCloseByRegions
-    # AddMapping(MorphCloseByRegions)
-
-except ImportError as e:
-    log("Premium nodes ignored", msg_color="BRIGHT_GREEN")
+# register all nodes
+for node_class in REGISTERED_NODES:
+    try:
+        AddMapping(node_class)
+    except Exception as e:
+        if hasattr(node_class, "NAME"):
+            log(f"Failed to register nodes {node_class.NAME}", msg_color="BRIGHT_GREEN")
+        else:
+            log("Failed to register nodes", msg_color="BRIGHT_GREEN")
+        log(e, msg_color="BRIGHT_GREEN")

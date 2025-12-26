@@ -7,10 +7,12 @@ import comfy.model_management as model_management
 from .anyType import ANY
 from .enums import ColorEnum, ThreshEnum, BorderEnum, ContourModeEnum, \
     ContourMethodEnum, DepthEnum, ColormapEnum
+from ..node_registry import comfy_node
 
 #---------------------------------------------------------------------------------------------------------------------#
 # Helpers
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Image2Nparray:
     @classmethod
     def INPUT_TYPES(cls):
@@ -43,6 +45,7 @@ class Image2Nparray:
         return (ret,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Nparray2Image:
     @classmethod
     def INPUT_TYPES(cls):
@@ -74,6 +77,7 @@ class Nparray2Image:
 #---------------------------------------------------------------------------------------------------------------------#
 # OpenCV Image Processing Nodes
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Bitwise_not:
     @classmethod
     def INPUT_TYPES(cls):
@@ -100,6 +104,7 @@ class Bitwise_not:
         return (result,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Threshold:
     @classmethod
     def INPUT_TYPES(cls):
@@ -144,6 +149,7 @@ class Threshold:
         return (result,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class GaussianBlur:
     @classmethod
     def INPUT_TYPES(cls):
@@ -200,6 +206,7 @@ class GaussianBlur:
         return (result,)
     
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class MedianBlur:
     @classmethod
     def INPUT_TYPES(cls):
@@ -233,6 +240,7 @@ class MedianBlur:
         return (result,)
     
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Blur:
     @classmethod
     def INPUT_TYPES(cls):
@@ -281,6 +289,7 @@ class Blur:
         return (result,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Sobel:
     @classmethod
     def INPUT_TYPES(cls):
@@ -345,6 +354,7 @@ class Sobel:
         return (result,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Canny:
     @classmethod
     def INPUT_TYPES(cls):
@@ -412,6 +422,7 @@ class Canny:
         return (result,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class HoughLines:
     @classmethod
     def INPUT_TYPES(cls):
@@ -475,6 +486,7 @@ class HoughLines:
         return (list_lines,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class HoughLinesP:
     @classmethod
     def INPUT_TYPES(cls):
@@ -535,6 +547,7 @@ class HoughLinesP:
         return (list_lines,)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class FindContours:
     @classmethod
     def INPUT_TYPES(cls):
@@ -579,6 +592,7 @@ class FindContours:
         return (contours, hierarchy, )
     
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class DrawContours:
     @classmethod
     def INPUT_TYPES(cls):
@@ -635,6 +649,7 @@ class DrawContours:
         return (result[np.newaxis, :],)
 
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class Circles:
     @classmethod
     def INPUT_TYPES(cls):
@@ -692,6 +707,7 @@ class Circles:
         return (result,)
     
 #---------------------------------------------------------------------------------------------------------------------#
+@comfy_node
 class ConnectedComponentsWithStats:
     @classmethod
     def INPUT_TYPES(cls):

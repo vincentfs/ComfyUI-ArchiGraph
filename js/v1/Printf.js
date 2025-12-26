@@ -1,7 +1,7 @@
 // below implementation is from https://github.com/pythongosssss/ComfyUI-Custom-Scripts
 
-import { app } from "../../../scripts/app.js";
-import { ComfyWidgets } from "../../../scripts/widgets.js";
+import { app } from "/scripts/app.js";
+import { ComfyWidgets } from "/scripts/widgets.js";
 
 // Displays input text on a node
 
